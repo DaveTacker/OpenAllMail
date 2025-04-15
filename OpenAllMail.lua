@@ -14,6 +14,51 @@ local DEBUG = true
 -- NOTE: "Auction House" might need localization if not using an English client.
 local AUCTION_HOUSE_SENDER = "Auction House"
 
+-- State tracking variables
+local isProcessing = false
+local totalMessagesToProcess = 0
+local currentMessageIndex = 0
+local totalMoneyTaken = 0
+
+-- Money icon texture paths
+local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t"
+local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t"
+local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:2:0|t"
+
+-- Function to format copper into gold/silver/copper with icons
+local function FormatMoneyWithIcons(copper)
+    local gold = math.floor(copper / 10000)
+    local silver = math.mod(copper, 10000) / 100
+    local copperRem = math.mod(copper, 100)
+    
+    local result = ""
+    if gold > 0 then
+        result = result .. gold .. GOLD_ICON .. " "
+    end
+    if silver > 0 or gold > 0 then
+        result = result .. silver .. SILVER_ICON .. " "
+    end
+    result = result .. copperRem .. COPPER_ICON
+    return result
+end
+
+-- Function to format copper into gold/silver/copper
+local function FormatMoney(copper)
+    local gold = math.floor(copper / 10000)
+    local silver = math.mod(copper, 10000) / 100
+    local copperRem = math.mod(copper, 100)
+    
+    local result = ""
+    if gold > 0 then
+        result = result .. gold .. "g "
+    end
+    if silver > 0 or gold > 0 then
+        result = result .. silver .. "s "
+    end
+    result = result .. copperRem .. "c"
+    return result
+end
+
 local function debugPrint(message)
     if DEBUG then
         DEFAULT_CHAT_FRAME:AddMessage(addonName .. ": " .. message, 1.0, 1.0, 0.0) -- Yellow text
@@ -22,108 +67,100 @@ end
 
 -- Function to create the button
 local function CreateOpenAllButton()
-    -- debugPrint("CreateOpenAllButton called.")
-
     if not MailFrame or not MailFrame:IsShown() then
-        -- debugPrint("MailFrame not found or not shown. Button creation aborted.")
         return
     end
 
     if button and button:IsShown() then
-        -- debugPrint("Button already exists and is shown.")
         return
     end
 
-    -- If button exists but is hidden, just show it
     if button and not button:IsShown() then
-        -- debugPrint("Button exists but is hidden. Showing it.")
         button:Show()
         return
     end
 
-    -- Create the button if it doesn't exist
-    -- debugPrint("Creating button frame...")
     button = CreateFrame("Button", "OpenAllMailButton", MailFrame, "UIPanelButtonTemplate")
     if not button then
         debugPrint("FAILED to create button frame!")
         return
     end
-    -- debugPrint("Button frame created: ", button)
+    
     button:SetText("Open All")
     button:SetWidth(80)
     button:SetHeight(22)
-    -- Anchor to the bottom-center of the main MailFrame
-    -- debugPrint("Setting button point...")
     button:SetPoint("BOTTOM", MailFrame, "BOTTOM", 0, 100)
-    -- debugPrint("Button point set.")
 
     button:SetScript("OnClick", function(self)
-        OpenAllMail:OpenAndProcessMail()
+        OpenAllMail:StartMailProcessing()
     end)
 
-    -- Explicitly show it after creation, just in case
     button:Show()
-    -- debugPrint("Button created, positioned, and shown.")
 end
 
--- Function to handle opening and processing mail
-function OpenAllMail:OpenAndProcessMail()
-    -- debugPrint("'Open All' clicked.")
-    local initialNumItems = GetInboxNumItems()
-    local initialMoney = 0
-    -- debugPrint("Found " .. initialNumItems .. " items in inbox initially.")
-
-    if initialNumItems == 0 then
-        debugPrint("No mail to process.")
+-- Function to process a single mail message
+local function ProcessSingleMail(index)
+    if not MailFrame or not MailFrame:IsShown() then
+        OpenAllMail:StopMailProcessing("Mail frame closed")
         return
     end
 
-    -- Iterate backwards because deleting/taking items shifts indices
-    for i = initialNumItems, 1, -1 do
-        -- debugPrint("Processing mail at index " .. i .. ", " .. GetInboxNumItems() .. " items remaining.")
-
-        -- Get sender info BEFORE attempting to loot/delete
-        -- canRead might be false if header info is unavailable (e.g., during rapid updates)
-        local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, textCreated, canReply, isGM = GetInboxHeaderInfo(i);
-        
-
-        if sender ~= nil then
-            -- debugPrint("Processing mail [" .. i .. "] From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None"))
-            
-            -- Attempt to take item/money. This marks the mail as read.
-            if hasItem then
-              debugPrint("Processing mail [" .. i .. "] From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None"))
-              TakeInboxItem(i)
-            end
-            
-            if money > 0 then
-                debugPrint("Processing mail [" .. i .. "] From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None"))
-                initialMoney = initialMoney + money
-                TakeInboxMoney(i)
-            end
-            -- debugPrint("Took items/money from mail index " .. i .. " (if any). Mail marked as read.")
-            -- debugPrint("Loop After TakeInboxItem: Current GetInboxNumItems() = " .. GetInboxNumItems())
-            
-            -- Now check if it should be deleted (only AH mail) - DISABLED
-            -- We use the sender info obtained *before* taking the item
-            -- Check if the sender string contains AUCTION_HOUSE_SENDER (plain text search)
-            if sender and string.find(sender, AUCTION_HOUSE_SENDER, 1, true) then
-              -- debugPrint("Mail [" .. i .. "] sender ('" .. sender .. "') contains '" .. AUCTION_HOUSE_SENDER .. "'. Would delete (DISABLED).")
-                 -- DeleteInboxItem(i) -- DISABLED
-            else
-                --  debugPrint("Mail [" .. i .. "] sender ('" .. (sender or "NIL") .. "') does not contain '" .. AUCTION_HOUSE_SENDER .. "'. Leaving as read.")
-            end
-            -- Consider adding a small delay here if experiencing "Internal Mail Error"
-            -- C_Timer.After(0.1, function() end) -- C_Timer not available in 1.12
-        else
-            debugPrint("Could not read header info for mail index " .. i .. ". Skipping.")
-        end
-        -- debugPrint("Loop End: Finished processing index i = " .. i)
+    local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, textCreated, canReply, isGM = GetInboxHeaderInfo(index)
+    
+    if sender == nil then
+        debugPrint("Could not read header info for mail index " .. index .. ". Skipping.")
+        return
     end
 
-    debugPrint("Finished processing mail. Money taken: " .. initialMoney)
-    -- Update the inbox display after processing is complete - Temporarily Disabled
-    -- CheckInbox()
+    local moneyText = money > 0 and " (" .. FormatMoney(money) .. ")" or ""
+    debugPrint("Processing mail [" .. index .. "] From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None") .. moneyText)
+    
+    if hasItem then
+        TakeInboxItem(index)
+    end
+    
+    if money > 0 then
+        totalMoneyTaken = totalMoneyTaken + money
+        TakeInboxMoney(index)
+    end
+end
+
+-- Function to start mail processing
+function OpenAllMail:StartMailProcessing()
+    if isProcessing then
+        debugPrint("Already processing mail")
+        return
+    end
+
+    local numItems = GetInboxNumItems()
+    if numItems == 0 then
+        debugPrint("No mail to process")
+        return
+    end
+
+    isProcessing = true
+    totalMessagesToProcess = numItems
+    currentMessageIndex = numItems
+    totalMoneyTaken = 0
+    
+    debugPrint("Starting to process " .. numItems .. " mail messages")
+    ProcessSingleMail(currentMessageIndex)
+end
+
+-- Function to stop mail processing
+function OpenAllMail:StopMailProcessing(reason)
+    if not isProcessing then return end
+    
+    isProcessing = false
+    totalMessagesToProcess = 0
+    currentMessageIndex = 0
+    
+    if reason then
+        debugPrint("Stopped processing: " .. reason)
+    end
+    
+    debugPrint("Total money taken: " .. FormatMoney(totalMoneyTaken))
+    totalMoneyTaken = 0
 end
 
 --[[
@@ -131,10 +168,9 @@ end
   Register events for the mail frame
 --]]
 function OpenAllMail:Init()
-    -- debugPrint("Init called.")
-    OpenAllMailMainFrame:RegisterEvent("MAIL_SHOW") -- Fired when the mail frame is opened
-    OpenAllMailMainFrame:RegisterEvent("MAIL_INBOX_UPDATE") -- Fired when mail list changes (new mail, deletions)
-    OpenAllMailMainFrame:RegisterEvent("MAIL_CLOSED") -- Fired when the mail frame is closed
+    OpenAllMailMainFrame:RegisterEvent("MAIL_SHOW")
+    OpenAllMailMainFrame:RegisterEvent("MAIL_INBOX_UPDATE")
+    OpenAllMailMainFrame:RegisterEvent("MAIL_CLOSED")
     CreateOpenAllButton()
 end
 
@@ -142,30 +178,23 @@ end
   Handle events for the mail frame.
 --]]
 function OpenAllMail:OnEvent(event)
-    -- debugPrint("Direct event print:", event) -- Print event directly first
-    -- debugPrint("OnEvent fired - Event: ", event)
-
-    -- Temporarily disable the logic inside
     if event == "MAIL_SHOW" then
-        -- debugPrint("MAIL_SHOW event received.")
-        -- Check if MailFrame exists and is visible *when the event fires*
         if MailFrame and MailFrame:IsShown() then
-            -- debugPrint("MailFrame exists and is shown. Proceeding to create/show button.")
             CreateOpenAllButton()
-        else
-            -- debugPrint("MailFrame not found or not shown when MAIL_SHOW fired.")
-            -- Maybe try again slightly later?
-            -- C_Timer.After(0.1, CreateOpenAllButton) -- Requires C_Timer, might not be in 1.12
         end
     elseif event == "MAIL_INBOX_UPDATE" then
-        -- debugPrint("MAIL_INBOX_UPDATE event received.")
-        -- If the inbox updates while it's open, ensure the button is still there
-        if MailFrame and MailFrame:IsVisible() then
-            CreateOpenAllButton() -- This will ensure it's shown if hidden, or created if missing
+        if isProcessing then
+            currentMessageIndex = currentMessageIndex - 1
+            if currentMessageIndex > 0 then
+                ProcessSingleMail(currentMessageIndex)
+            else
+                OpenAllMail:StopMailProcessing("All messages processed")
+            end
+        elseif MailFrame and MailFrame:IsVisible() then
+            CreateOpenAllButton()
         end
     elseif event == "MAIL_CLOSED" then
-        -- debugPrint("MAIL_CLOSED event received.")
-        -- If the inbox closes, hide the button
+        OpenAllMail:StopMailProcessing("Mail frame closed")
         if button then
             button:Hide()
         end
