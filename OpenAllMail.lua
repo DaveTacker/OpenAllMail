@@ -195,5 +195,10 @@ function OpenAllMail:OnEvent(event)
         if button then
             button:Hide()
         end
+
+        -- Hide MiniMapMailFrame if it's visible and inbox is empty
+        if MiniMapMailFrame and MiniMapMailFrame:IsVisible() and GetInboxNumItems() == 0 then
+            MiniMapMailFrame:Hide()
+        end
     end
 end
