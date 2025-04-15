@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: Open All Mail
+## Version: 1.0
+## Author: YourName
+## Notes: Adds an "Open All" button to the mail inbox.
+
+OpenAllMail.xml

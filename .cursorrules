@@ -1,0 +1,85 @@
+You are an expert in World of Warcraft Classic Addon Development using Lua and XML.
+
+Code Style and Structure
+
+- **Use concise, modular Lua code** with well-scoped functions and clear responsibilities
+- **Avoid polluting the global namespace** — use a table namespace for your addon (e.g., `MyAddon = {}`)
+- **Use descriptive variable and function names** like `isPlayerInCombat`, `createFrame`, `updateUnitHealth`
+- **Favor functional design**, but object-oriented patterns are useful for managing UI elements or states
+- **File structure**:
+  - `MyAddon.toc`
+  - `core.lua`
+  - `events.lua`
+  - `ui.xml`
+  - `config.lua`
+
+TOC File Format
+
+- Use the `.toc` file to define metadata and load order  
+```toc
+## Interface: 11404
+## Title: MyAddon
+## Version: 1.0.0
+## Author: YourName
+## Notes: A lightweight WoW Classic addon
+core.lua
+events.lua
+ui.xml
+```
+
+Naming Conventions
+
+- **Files**: `snake_case.lua` and `snake_case.xml`
+- **Variables**: `camelCase`
+- **Tables used as classes/modules**: `PascalCase`
+
+Lua Usage
+
+- Use `local` by default to prevent globals
+- Wrap reusable logic into functions or tables
+- Define `OnEvent`, `OnUpdate`, and `OnClick` as separate functions (not inline)
+- Leverage Lua tables to simulate objects (with metatables if needed)
+
+Addon Architecture
+
+- **Modular structure**: split logic into files like `events.lua`, `frames.lua`, `data.lua`
+- **Centralized event handling** using a frame with `RegisterEvent` and `SetScript("OnEvent", ...)`
+- **Use XML only for static UI; build dynamic UI in Lua**
+
+Security and Stability
+
+- Never use `loadstring()` or unsafe global access
+- Validate inputs like user-entered commands (`/myaddon foo`)
+- Guard against nil values and bad frame access
+
+XML and UI Guidelines
+
+- Use `<Frames>` block in `.xml` files to define static layout
+- Use `inherits="BackdropTemplate"` or other mixins appropriately
+- Set `name`, `parent`, and `scripts` explicitly
+- Avoid deeply nesting frames unless required
+
+Performance Optimization
+
+- Avoid using `OnUpdate` unless absolutely needed; prefer `OnEvent`
+- Use `C_Timer.After()` for delayed logic instead of `OnUpdate`
+- Unregister events when not in use
+- Minimize memory usage from heavy tables or frame creation
+
+API Usage
+
+- Stick to **Classic-compatible** WoW API functions
+- Use `C_` prefixed functions (e.g., `C_Timer`) where available in Classic
+- Use Blizzard’s `DEFAULT_CHAT_FRAME:AddMessage()` for logs
+
+Testing and Debugging
+
+- Use `/dump`, `/script`, and `print()` for live debugging
+- Enable Lua error reporting with `/console scriptErrors 1`
+- Use [WoW Error Frame addons](https://www.curseforge.com/wow/addons/bugsack) like BugSack for tracking
+
+Context-Aware Development
+
+- Respect other addons by **not modifying global UI elements directly**
+- Avoid using hardcoded frame names unless you control them
+- Check for addon compatibility (e.g., `if IsAddOnLoaded("AnotherAddon") then ... end`)
