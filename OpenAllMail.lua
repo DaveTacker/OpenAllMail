@@ -19,13 +19,14 @@ local isProcessing = false
 local totalMessagesToProcess = 0
 local currentMessageIndex = 0
 local totalMoneyTaken = 0
+local totalItemsTaken = 0
 
 -- Money icon texture paths
 local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t"
 local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t"
 local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:2:0|t"
 
--- Function to format copper into gold/silver/copper with icons
+-- format copper into gold/silver/copper with icons
 local function FormatMoneyWithIcons(copper)
     local gold = math.floor(copper / 10000)
     local silver = math.mod(copper, 10000) / 100
@@ -42,7 +43,7 @@ local function FormatMoneyWithIcons(copper)
     return result
 end
 
--- Function to format copper into gold/silver/copper
+-- format copper into gold/silver/copper
 local function FormatMoney(copper)
     local gold = math.floor(copper / 10000)
     local silver = math.mod(copper, 10000) / 100
@@ -65,7 +66,7 @@ local function debugPrint(message)
     end
 end
 
--- Function to create the button
+-- create the button
 local function CreateOpenAllButton()
     if not MailFrame or not MailFrame:IsShown() then
         return
@@ -98,7 +99,7 @@ local function CreateOpenAllButton()
     button:Show()
 end
 
--- Function to process a single mail message
+-- process a single mail message
 local function ProcessSingleMail(index)
     if not MailFrame or not MailFrame:IsShown() then
         OpenAllMail:StopMailProcessing("Mail frame closed")
@@ -113,9 +114,10 @@ local function ProcessSingleMail(index)
     end
 
     local moneyText = money > 0 and " (" .. FormatMoney(money) .. ")" or ""
-    debugPrint("Processing mail [" .. index .. "] From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None") .. moneyText)
+    debugPrint("From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None") .. moneyText)
     
     if hasItem then
+        totalItemsTaken = totalItemsTaken + 1
         TakeInboxItem(index)
     end
     
@@ -125,7 +127,7 @@ local function ProcessSingleMail(index)
     end
 end
 
--- Function to start mail processing
+-- start mail processing
 function OpenAllMail:StartMailProcessing()
     if isProcessing then
         debugPrint("Already processing mail")
@@ -143,24 +145,19 @@ function OpenAllMail:StartMailProcessing()
     currentMessageIndex = numItems
     totalMoneyTaken = 0
     
-    debugPrint("Starting to process " .. numItems .. " mail messages")
     ProcessSingleMail(currentMessageIndex)
 end
 
--- Function to stop mail processing
+-- stop mail processing
 function OpenAllMail:StopMailProcessing(reason)
     if not isProcessing then return end
     
     isProcessing = false
+    debugPrint("Processed " .. totalMessagesToProcess .. " messages, " .. totalMoneyTaken .. " money, " .. totalItemsTaken .. " items.")
     totalMessagesToProcess = 0
     currentMessageIndex = 0
-    
-    if reason then
-        debugPrint("Stopped processing: " .. reason)
-    end
-    
-    debugPrint("Total money taken: " .. FormatMoney(totalMoneyTaken))
     totalMoneyTaken = 0
+    totalItemsTaken = 0
 end
 
 --[[
@@ -200,5 +197,3 @@ function OpenAllMail:OnEvent(event)
         end
     end
 end
-
--- debugPrint("OpenAllMail AddOn loaded.") -- Keep this commented for now unless debugging load issues
