@@ -1,7 +1,7 @@
 ## Interface: 11200
 ## Title: Open All Mail
 ## Version: 1.0
-## Author: YourName
-## Notes: Adds an "Open All" button to the mail inbox.
+## Author: David Tacker (david.tacker@gmail.com)
+## Notes: Adds an "Open All" button to the mail inbox to open all mail messages.
 
 OpenAllMail.xml
