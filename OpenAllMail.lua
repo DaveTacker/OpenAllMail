@@ -21,6 +21,16 @@ local currentMessageIndex = 0
 local totalMoneyTaken = 0
 local totalItemsTaken = 0
 
+-- Timer related variables
+local timerFrame = nil
+local timerActive = false
+local timerDelay = 0
+local timerFunc = nil
+local timerLastUpdateTime = 0 -- Added to track time for manual delta calculation
+
+-- Localized functions
+-- local After = C_Timer.After -- Removing this as C_Timer is unavailable
+
 -- Money icon texture paths
 local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t"
 local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t"
@@ -99,11 +109,13 @@ local function CreateOpenAllButton()
     button:Show()
 end
 
--- Forward declaration for TryProcessNextMail
-local TryProcessNextMail
+-- Forward declarations
+local ScheduleNextMailProcessing
+local ScheduleDelayedFunction
+local ProcessSingleMail
 
 -- process a single mail message
-local function ProcessSingleMail(index)
+ProcessSingleMail = function(index)
     if not MailFrame or not MailFrame:IsShown() then
         OpenAllMail:StopMailProcessing("Mail frame closed")
         return
@@ -112,48 +124,80 @@ local function ProcessSingleMail(index)
     local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, textCreated, canReply, isGM = GetInboxHeaderInfo(index)
 
     if sender == nil then
-        debugPrint("Could not read header info for mail index " .. index .. ". Attempting to proceed to next.")
-        TryProcessNextMail() -- Try to skip this mail
+        debugPrint("Could not read header info for mail index " .. index .. ". Scheduling next attempt.")
+        ScheduleNextMailProcessing() -- Try to skip this mail after a delay
         return
     end
 
     local moneyText = money > 0 and " (" .. FormatMoney(money) .. ")" or ""
-    debugPrint("Processing mail " .. index .. ": From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None") .. moneyText .. " HasItem: " .. tostring(hasItem))
+    debugPrint("Processing mail " .. index .. ": From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None") .. moneyText)
 
     local tookSomething = false
     if hasItem then
+        debugPrint("Taking item from mail " .. index)
         totalItemsTaken = totalItemsTaken + 1
         TakeInboxItem(index)
         tookSomething = true
     end
 
     if money > 0 then
+        debugPrint("Taking money ("..FormatMoney(money)..") from mail " .. index)
         totalMoneyTaken = totalMoneyTaken + money
         TakeInboxMoney(index)
         tookSomething = true
     end
 
-    -- If nothing was taken, MAIL_INBOX_UPDATE might not fire, so manually advance.
+    -- If nothing was taken, MAIL_INBOX_UPDATE won't fire.
+    -- Schedule the next processing step directly.
     if not tookSomething then
-        TryProcessNextMail()
+        debugPrint("Mail " .. index .. " had no items or money. Scheduling next.")
+        ScheduleNextMailProcessing()
+    end
+    -- If something WAS taken, we wait for MAIL_INBOX_UPDATE to call ScheduleNextMailProcessing
+end
+
+-- Schedules the processing of the next mail item after a delay
+ScheduleNextMailProcessing = function()
+    if not isProcessing then return end
+
+    -- Critical: Only schedule if a timer isn't already active
+    if timerActive then
+        debugPrint("Timer already active, skipping schedule request.")
+        return
+    end
+
+    currentMessageIndex = currentMessageIndex - 1
+    debugPrint("Scheduling next mail check for index: " .. currentMessageIndex)
+
+    if currentMessageIndex > 0 then
+        -- Schedule the *actual* processing call to happen after the delay
+        ScheduleDelayedFunction(0.5, function()
+            if isProcessing then -- Double check processing status after delay
+               ProcessSingleMail(currentMessageIndex)
+            end
+        end)
+    else
+        debugPrint("Reached end of mail (index 0). Stopping processing.")
+        OpenAllMail:StopMailProcessing("Finished processing all mail.")
     end
 end
 
--- Tries to process the next mail item or stop if finished
-TryProcessNextMail = function()
-    if not isProcessing then return end
-
-    currentMessageIndex = currentMessageIndex - 1
-    debugPrint("Mail update received or manually advanced. Next index: " .. currentMessageIndex)
-
-    if currentMessageIndex > 0 then
-        if isProcessing then -- Check again in case processing was stopped during the delay
-            ProcessSingleMail(currentMessageIndex)
-        end
-    else
-        -- We've processed or attempted to process index 1, now stop.
-        OpenAllMail:StopMailProcessing("Finished processing all mail.")
+-- Custom timer function using OnUpdate - executes a function after a delay
+ScheduleDelayedFunction = function(delay, func)
+    if not timerFrame then
+        debugPrint("Timer frame not initialized!")
+        return
     end
+    -- This function now ASSUMES it's safe to schedule, 
+    -- the check is done in ScheduleNextMailProcessing
+    -- if timerActive then debugPrint("Warning: Overwriting timer (This shouldn't happen with new logic)") end
+    
+    timerDelay = delay
+    timerFunc = func
+    timerLastUpdateTime = GetTime() -- Initialize start time
+    timerActive = true
+    debugPrint("Timer started for "..delay.." seconds.")
+    timerFrame:Show() -- Ensure the frame is shown to receive OnUpdate events
 end
 
 -- start mail processing
@@ -174,9 +218,15 @@ function OpenAllMail:StartMailProcessing()
     totalMessagesToProcess = numItems
     currentMessageIndex = numItems -- Start with the highest index
     totalMoneyTaken = 0
-    totalItemsTaken = 0 -- Reset item count here
+    totalItemsTaken = 0
+    
+    -- Cancel any potentially lingering timer from a previous run or error
+    timerActive = false
+    timerFunc = nil
+    if timerFrame then timerFrame:Hide() end
 
-    ProcessSingleMail(currentMessageIndex) -- Process the first one (highest index)
+    -- Process the first mail item immediately (no initial delay)
+    ProcessSingleMail(currentMessageIndex)
 end
 
 -- stop mail processing
@@ -184,7 +234,7 @@ function OpenAllMail:StopMailProcessing(reason)
     if not isProcessing then return end
 
     isProcessing = false
-    local moneyFormatted = FormatMoneyWithIcons(totalMoneyTaken)
+    local moneyFormatted = FormatMoney(totalMoneyTaken)
     debugPrint("Stopped: " .. reason .. " Processed ~" .. (totalMessagesToProcess - currentMessageIndex) .. "/" .. totalMessagesToProcess .." mails. Items: " .. totalItemsTaken .. ", Money: " .. moneyFormatted)
 
     -- Reset state
@@ -205,10 +255,46 @@ end
   Register events for the mail frame
 --]]
 function OpenAllMail:Init()
+    -- Create the timer frame
+    timerFrame = CreateFrame("Frame", "OpenAllMailTimerFrame")
+    if not timerFrame then
+        debugPrint("FAILED to create timer frame!")
+        return
+    end
+    timerFrame:Hide() -- Start hidden
+    -- Change OnUpdate handler to manually calculate delta time
+    timerFrame:SetScript("OnUpdate", function(self) -- Removed 'elapsed' parameter as it's reported nil
+        if not timerActive then
+            timerFrame:Hide() -- Hide if not active to save resources
+            return
+        end
+
+        local currentTime = GetTime()
+        local delta = currentTime - timerLastUpdateTime
+        timerLastUpdateTime = currentTime -- Update for the next frame
+
+        -- Ensure delta is not negative or excessively large if GetTime() behaves strangely
+        if delta < 0 then delta = 0 end
+        if delta > 1 then delta = 1 end -- Cap delta to prevent huge jumps if game lags/resumes
+
+        timerDelay = timerDelay - delta -- Use calculated delta
+
+        if timerDelay <= 0 then
+            timerActive = false
+            local funcToRun = timerFunc
+            timerFunc = nil -- Clear before running to prevent re-entrancy issues
+            timerFrame:Hide()
+            
+            if funcToRun then
+                funcToRun() -- Execute the scheduled function
+            end
+        end
+    end)
+    
+    -- Register main addon events
     OpenAllMailMainFrame:RegisterEvent("MAIL_SHOW")
     OpenAllMailMainFrame:RegisterEvent("MAIL_INBOX_UPDATE")
     OpenAllMailMainFrame:RegisterEvent("MAIL_CLOSED")
-    CreateOpenAllButton()
 end
 
 --[[
@@ -221,11 +307,11 @@ function OpenAllMail:OnEvent(event)
         end
     elseif event == "MAIL_INBOX_UPDATE" then
         if isProcessing then
-            -- Mail updated, likely means item/money taken. Try processing the next one.
-            TryProcessNextMail()
+            -- Mail state updated. Schedule the *next* processing step.
+            debugPrint("MAIL_INBOX_UPDATE received during processing. Scheduling next.")
+            ScheduleNextMailProcessing()
         elseif MailFrame and MailFrame:IsVisible() then
-             -- If not processing, but mail updates and frame is visible,
-             -- ensure button exists (e.g., after deleting mail manually)
+             -- Ensure button exists if not processing
             CreateOpenAllButton()
         end
     elseif event == "MAIL_CLOSED" then
