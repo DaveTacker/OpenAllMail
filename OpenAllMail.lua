@@ -99,6 +99,9 @@ local function CreateOpenAllButton()
     button:Show()
 end
 
+-- Forward declaration for TryProcessNextMail
+local TryProcessNextMail
+
 -- process a single mail message
 local function ProcessSingleMail(index)
     if not MailFrame or not MailFrame:IsShown() then
@@ -107,23 +110,49 @@ local function ProcessSingleMail(index)
     end
 
     local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, textCreated, canReply, isGM = GetInboxHeaderInfo(index)
-    
+
     if sender == nil then
-        debugPrint("Could not read header info for mail index " .. index .. ". Skipping.")
+        debugPrint("Could not read header info for mail index " .. index .. ". Attempting to proceed to next.")
+        TryProcessNextMail() -- Try to skip this mail
         return
     end
 
     local moneyText = money > 0 and " (" .. FormatMoney(money) .. ")" or ""
-    debugPrint("From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None") .. moneyText)
-    
+    debugPrint("Processing mail " .. index .. ": From: " .. (sender or "Unknown") .. ", Subject: " .. (subject or "None") .. moneyText .. " HasItem: " .. tostring(hasItem))
+
+    local tookSomething = false
     if hasItem then
         totalItemsTaken = totalItemsTaken + 1
         TakeInboxItem(index)
+        tookSomething = true
     end
-    
+
     if money > 0 then
         totalMoneyTaken = totalMoneyTaken + money
         TakeInboxMoney(index)
+        tookSomething = true
+    end
+
+    -- If nothing was taken, MAIL_INBOX_UPDATE might not fire, so manually advance.
+    if not tookSomething then
+        TryProcessNextMail()
+    end
+end
+
+-- Tries to process the next mail item or stop if finished
+TryProcessNextMail = function()
+    if not isProcessing then return end
+
+    currentMessageIndex = currentMessageIndex - 1
+    debugPrint("Mail update received or manually advanced. Next index: " .. currentMessageIndex)
+
+    if currentMessageIndex > 0 then
+        if isProcessing then -- Check again in case processing was stopped during the delay
+            ProcessSingleMail(currentMessageIndex)
+        end
+    else
+        -- We've processed or attempted to process index 1, now stop.
+        OpenAllMail:StopMailProcessing("Finished processing all mail.")
     end
 end
 
@@ -140,24 +169,35 @@ function OpenAllMail:StartMailProcessing()
         return
     end
 
+    debugPrint("Starting mail processing for " .. numItems .. " messages.")
     isProcessing = true
     totalMessagesToProcess = numItems
-    currentMessageIndex = numItems
+    currentMessageIndex = numItems -- Start with the highest index
     totalMoneyTaken = 0
-    
-    ProcessSingleMail(currentMessageIndex)
+    totalItemsTaken = 0 -- Reset item count here
+
+    ProcessSingleMail(currentMessageIndex) -- Process the first one (highest index)
 end
 
 -- stop mail processing
 function OpenAllMail:StopMailProcessing(reason)
     if not isProcessing then return end
-    
+
     isProcessing = false
-    debugPrint("Processed " .. totalMessagesToProcess .. " messages, " .. totalMoneyTaken .. " money, " .. totalItemsTaken .. " items.")
+    local moneyFormatted = FormatMoneyWithIcons(totalMoneyTaken)
+    debugPrint("Stopped: " .. reason .. " Processed ~" .. (totalMessagesToProcess - currentMessageIndex) .. "/" .. totalMessagesToProcess .." mails. Items: " .. totalItemsTaken .. ", Money: " .. moneyFormatted)
+
+    -- Reset state
     totalMessagesToProcess = 0
     currentMessageIndex = 0
     totalMoneyTaken = 0
     totalItemsTaken = 0
+
+    -- Re-enable button maybe?
+    -- Refresh mail list or check minimap icon status
+    if MiniMapMailFrame and MiniMapMailFrame:IsVisible() and GetInboxNumItems() == 0 then
+        MiniMapMailFrame:Hide()
+    end
 end
 
 --[[
@@ -181,13 +221,11 @@ function OpenAllMail:OnEvent(event)
         end
     elseif event == "MAIL_INBOX_UPDATE" then
         if isProcessing then
-            currentMessageIndex = currentMessageIndex - 1
-            if currentMessageIndex > 0 then
-                ProcessSingleMail(currentMessageIndex)
-            else
-                OpenAllMail:StopMailProcessing("All messages processed")
-            end
+            -- Mail updated, likely means item/money taken. Try processing the next one.
+            TryProcessNextMail()
         elseif MailFrame and MailFrame:IsVisible() then
+             -- If not processing, but mail updates and frame is visible,
+             -- ensure button exists (e.g., after deleting mail manually)
             CreateOpenAllButton()
         end
     elseif event == "MAIL_CLOSED" then
