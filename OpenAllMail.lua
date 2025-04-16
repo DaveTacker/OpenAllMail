@@ -56,7 +56,7 @@ end
 -- format copper into gold/silver/copper
 local function FormatMoney(copper)
     local gold = math.floor(copper / 10000)
-    local silver = math.mod(copper, 10000) / 100
+    local silver = math.mod(copper, 1000) / 100
     local copperRem = math.mod(copper, 100)
     
     local result = ""
@@ -124,7 +124,7 @@ ProcessSingleMail = function(index)
     local packageIcon, stationeryIcon, sender, subject, money, CODAmount, daysLeft, hasItem, wasRead, wasReturned, textCreated, canReply, isGM = GetInboxHeaderInfo(index)
 
     if sender == nil then
-        debugPrint("Could not read header info for mail index " .. index .. ". Scheduling next attempt.")
+        -- debugPrint("Could not read header info for mail index " .. index .. ". Scheduling next attempt.")
         ScheduleNextMailProcessing() -- Try to skip this mail after a delay
         return
     end
@@ -134,14 +134,14 @@ ProcessSingleMail = function(index)
 
     local tookSomething = false
     if hasItem then
-        debugPrint("Taking item from mail " .. index)
+        -- debugPrint("Taking item from mail " .. index)
         totalItemsTaken = totalItemsTaken + 1
         TakeInboxItem(index)
         tookSomething = true
     end
 
     if money > 0 then
-        debugPrint("Taking money ("..FormatMoney(money)..") from mail " .. index)
+        -- debugPrint("Taking money ("..FormatMoney(money)..") from mail " .. index)
         totalMoneyTaken = totalMoneyTaken + money
         TakeInboxMoney(index)
         tookSomething = true
@@ -150,7 +150,7 @@ ProcessSingleMail = function(index)
     -- If nothing was taken, MAIL_INBOX_UPDATE won't fire.
     -- Schedule the next processing step directly.
     if not tookSomething then
-        debugPrint("Mail " .. index .. " had no items or money. Scheduling next.")
+        -- debugPrint("Mail " .. index .. " had no items or money. Scheduling next.")
         ScheduleNextMailProcessing()
     end
     -- If something WAS taken, we wait for MAIL_INBOX_UPDATE to call ScheduleNextMailProcessing
@@ -162,12 +162,12 @@ ScheduleNextMailProcessing = function()
 
     -- Critical: Only schedule if a timer isn't already active
     if timerActive then
-        debugPrint("Timer already active, skipping schedule request.")
+        -- debugPrint("Timer already active, skipping schedule request.")
         return
     end
 
     currentMessageIndex = currentMessageIndex - 1
-    debugPrint("Scheduling next mail check for index: " .. currentMessageIndex)
+    -- debugPrint("Scheduling next mail check for index: " .. currentMessageIndex)
 
     if currentMessageIndex > 0 then
         -- Schedule the *actual* processing call to happen after the delay
@@ -177,7 +177,7 @@ ScheduleNextMailProcessing = function()
             end
         end)
     else
-        debugPrint("Reached end of mail (index 0). Stopping processing.")
+        -- debugPrint("Reached end of mail (index 0). Stopping processing.")
         OpenAllMail:StopMailProcessing("Finished processing all mail.")
     end
 end
@@ -196,20 +196,20 @@ ScheduleDelayedFunction = function(delay, func)
     timerFunc = func
     timerLastUpdateTime = GetTime() -- Initialize start time
     timerActive = true
-    debugPrint("Timer started for "..delay.." seconds.")
+    -- debugPrint("Timer started for "..delay.." seconds.")
     timerFrame:Show() -- Ensure the frame is shown to receive OnUpdate events
 end
 
 -- start mail processing
 function OpenAllMail:StartMailProcessing()
     if isProcessing then
-        debugPrint("Already processing mail")
+        -- debugPrint("Already processing mail")
         return
     end
 
     local numItems = GetInboxNumItems()
     if numItems == 0 then
-        debugPrint("No mail to process")
+        -- debugPrint("No mail to process")
         return
     end
 
@@ -308,7 +308,7 @@ function OpenAllMail:OnEvent(event)
     elseif event == "MAIL_INBOX_UPDATE" then
         if isProcessing then
             -- Mail state updated. Schedule the *next* processing step.
-            debugPrint("MAIL_INBOX_UPDATE received during processing. Scheduling next.")
+            -- debugPrint("MAIL_INBOX_UPDATE received during processing. Scheduling next.")
             ScheduleNextMailProcessing()
         elseif MailFrame and MailFrame:IsVisible() then
              -- Ensure button exists if not processing
