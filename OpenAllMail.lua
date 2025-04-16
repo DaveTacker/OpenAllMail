@@ -56,7 +56,7 @@ end
 -- format copper into gold/silver/copper
 local function FormatMoney(copper)
     local gold = math.floor(copper / 10000)
-    local silver = math.mod(copper, 1000) / 100
+    local silver = math.floor(math.mod(copper, 10000) / 100)
     local copperRem = math.mod(copper, 100)
     
     local result = ""
