@@ -11,9 +11,6 @@ local button = nil -- Will hold our button frame
 -- Constants
 local DEBUG = true
 
--- NOTE: "Auction House" might need localization if not using an English client.
-local AUCTION_HOUSE_SENDER = "Auction House"
-
 -- State tracking variables
 local isProcessing = false
 local totalMessagesToProcess = 0
@@ -26,32 +23,7 @@ local timerFrame = nil
 local timerActive = false
 local timerDelay = 0
 local timerFunc = nil
-local timerLastUpdateTime = 0 -- Added to track time for manual delta calculation
-
--- Localized functions
--- local After = C_Timer.After -- Removing this as C_Timer is unavailable
-
--- Money icon texture paths
-local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:2:0|t"
-local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t"
-local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:2:0|t"
-
--- format copper into gold/silver/copper with icons
-local function FormatMoneyWithIcons(copper)
-    local gold = math.floor(copper / 10000)
-    local silver = math.mod(copper, 10000) / 100
-    local copperRem = math.mod(copper, 100)
-    
-    local result = ""
-    if gold > 0 then
-        result = result .. gold .. GOLD_ICON .. " "
-    end
-    if silver > 0 or gold > 0 then
-        result = result .. silver .. SILVER_ICON .. " "
-    end
-    result = result .. copperRem .. COPPER_ICON
-    return result
-end
+local timerLastUpdateTime = 0
 
 -- format copper into gold/silver/copper
 local function FormatMoney(copper)
@@ -70,6 +42,7 @@ local function FormatMoney(copper)
     return result
 end
 
+-- debug print
 local function debugPrint(message)
     if DEBUG then
         DEFAULT_CHAT_FRAME:AddMessage(addonName .. ": " .. message, 1.0, 1.0, 0.0) -- Yellow text
